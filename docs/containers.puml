@@ -1,0 +1,62 @@
+@startuml containers
+!pragma layout smetana
+!include <C4/C4_Container>
+
+LAYOUT_TOP_DOWN()
+AddRelTag("async", $textColor="#C05621", $lineColor="#C05621", $lineStyle=DashedLine(), $legendText="Асинхронное событие")
+
+title Маркетплейс — C4 Container
+
+Person(buyer, "Покупатель", "Просматривает ленту, оформляет и оплачивает заказы")
+Person(seller, "Продавец", "Управляет своими товарами")
+
+System_Boundary(marketplace, "Маркетплейс") {
+    Container(web, "Веб-приложение", "React", "Интерфейс покупателя и продавца")
+
+    Container(users, "Users", "Python / FastAPI", "Профили, роли, контакты и интересы")
+    Container(catalog, "Catalog", "Python / FastAPI", "Товары, предпочтения и персонализированная лента")
+    Container(orders, "Orders", "Python / FastAPI", "Оформление заказов, расчёт суммы и статусы")
+    Container(payments, "Payments", "Python / FastAPI", "Создание оплаты и учёт её результата. Проектирование с учётом PCI DSS")
+    Container(notifications, "Notifications", "Python / FastAPI", "Отправка уведомлений о статусах заказов")
+
+    ContainerDb(users_db, "Users DB", "PostgreSQL", "Учётные записи, контакты, роли; оригинал выбранных интересов")
+    ContainerDb(catalog_db, "Catalog DB", "PostgreSQL", "Товары, категории, цены и ID продавцов; копия выбранных интересов; история просмотров и покупок; рассчитанные предпочтения")
+    ContainerDb(orders_db, "Orders DB", "PostgreSQL", "Заказы, снимки позиций и цен, суммы и статусы")
+    ContainerDb(payments_db, "Payments DB", "PostgreSQL", "Попытки оплаты, суммы, валюты, статусы и ID провайдера")
+    ContainerDb(notifications_db, "Notifications DB", "PostgreSQL", "Шаблоны, задания и результаты доставки")
+
+    ContainerQueue(kafka, "Шина событий", "Apache Kafka", "События платежей, заказов и выбранных интересов")
+}
+
+System_Ext(payment_provider, "Платёжный провайдер", "Принимает оплату и сообщает результат")
+System_Ext(email_provider, "Почтовый провайдер", "Доставляет письма пользователям")
+
+Rel(buyer, web, "Использует", "HTTPS")
+Rel(seller, web, "Использует", "HTTPS")
+
+Rel(web, users, "Управляет профилем и интересами", "HTTPS / REST, синхронно")
+Rel(web, catalog, "Получает ленту; управляет товарами; передаёт просмотры", "HTTPS / REST, синхронно")
+Rel(web, orders, "Оформляет и просматривает заказы", "HTTPS / REST, синхронно")
+
+Rel(orders, catalog, "Получает товары и текущие цены", "HTTP / REST, синхронно")
+Rel(orders, payments, "Создаёт оплату; получает ссылку", "HTTP / REST, синхронно")
+Rel(payments, payment_provider, "Создаёт платёж", "HTTPS / REST, синхронно")
+Rel(payment_provider, payments, "Сообщает результат оплаты", "HTTPS / webhook, асинхронно", $tags="async")
+
+Rel(payments, kafka, "Публикует PaymentStatusChanged", "Kafka protocol", $tags="async")
+Rel(kafka, orders, "Доставляет PaymentStatusChanged", "Kafka protocol", $tags="async")
+Rel(orders, kafka, "Публикует OrderStatusChanged; OrderPaid после подтверждения оплаты", "Kafka protocol", $tags="async")
+Rel(users, kafka, "Публикует UserInterestsChanged", "Kafka protocol", $tags="async")
+Rel(kafka, catalog, "Доставляет UserInterestsChanged и OrderPaid", "Kafka protocol", $tags="async")
+Rel(kafka, notifications, "Доставляет OrderStatusChanged", "Kafka protocol", $tags="async")
+Rel(notifications, users, "Получает контакт покупателя", "HTTP / REST, синхронно")
+Rel(notifications, email_provider, "Передаёт письмо для доставки", "HTTPS / REST, синхронно")
+
+Rel(users, users_db, "Читает и записывает", "SQL")
+Rel(catalog, catalog_db, "Читает и записывает", "SQL")
+Rel(orders, orders_db, "Читает и записывает", "SQL")
+Rel(payments, payments_db, "Читает и записывает", "SQL")
+Rel(notifications, notifications_db, "Читает и записывает", "SQL")
+
+SHOW_LEGEND()
+@enduml

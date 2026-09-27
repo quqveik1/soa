@@ -1,0 +1,5 @@
+*
+!services/
+!services/catalog/
+!services/catalog/main.py
+!services/catalog/requirements.txt
