@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from decimal import Decimal
+import re
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
+{{#vendorExtensions.x-py-datetime-imports}}{{#-first}}from datetime import{{/-first}} {{{.}}}{{^-last}},{{/-last}}{{/vendorExtensions.x-py-datetime-imports}}
+{{#vendorExtensions.x-py-typing-imports}}{{#-first}}from typing import{{/-first}} {{{.}}}{{^-last}},{{/-last}}{{/vendorExtensions.x-py-typing-imports}}
+{{#vendorExtensions.x-py-pydantic-imports}}{{#-first}}from pydantic import{{/-first}} {{{.}}}{{^-last}},{{/-last}}{{/vendorExtensions.x-py-pydantic-imports}}
+{{#vendorExtensions.x-py-other-imports}}
+{{{.}}}
+{{/vendorExtensions.x-py-other-imports}}
+{{#vendorExtensions.x-py-model-imports}}
+{{{.}}}
+{{/vendorExtensions.x-py-model-imports}}
+
+
+class {{classname}}({{#parent}}{{{.}}}{{/parent}}{{^parent}}BaseModel{{/parent}}):
+{{#vars}}
+    {{name}}: {{#isNumber}}{{^required}}Optional[{{/required}}{{#required}}{{#isNullable}}Optional[{{/isNullable}}{{/required}}Decimal{{^required}}]{{/required}}{{#required}}{{#isNullable}}]{{/isNullable}}{{/required}} = Field({{#required}}...{{/required}}{{^required}}{{#defaultValue}}Decimal("{{{.}}}"){{/defaultValue}}{{^defaultValue}}None{{/defaultValue}}{{/required}}, strict=True, allow_inf_nan=False, alias="{{baseName}}"{{#minimum}}, {{#exclusiveMinimum}}gt{{/exclusiveMinimum}}{{^exclusiveMinimum}}ge{{/exclusiveMinimum}}=Decimal("{{.}}"){{/minimum}}{{#maximum}}, {{#exclusiveMaximum}}lt{{/exclusiveMaximum}}{{^exclusiveMaximum}}le{{/exclusiveMaximum}}=Decimal("{{.}}"){{/maximum}}{{#multipleOf}}, multiple_of=Decimal("{{.}}"){{/multipleOf}}){{/isNumber}}{{^isNumber}}{{{vendorExtensions.x-py-typing}}}{{/isNumber}}
+{{/vars}}
+
+    model_config = {
+        "populate_by_name": True,
+        "validate_assignment": True,
+        "protected_namespaces": (),
+        "extra": "{{#isAdditionalPropertiesTrue}}allow{{/isAdditionalPropertiesTrue}}{{^isAdditionalPropertiesTrue}}forbid{{/isAdditionalPropertiesTrue}}",
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_explicit_nulls(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            for name in ({{#vars}}{{^isNullable}}"{{baseName}}", {{/isNullable}}{{/vars}}):
+                if name in value and value[name] is None:
+                    raise ValueError(f"{name} must not be null")
+        return value
+{{#vars}}
+{{#isNumber}}
+
+    @field_validator("{{name}}", mode="before")
+    @classmethod
+    def validate_{{name}}_number(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            raise ValueError("must be a JSON number")
+        return Decimal(str(value))
+
+    @field_serializer("{{name}}", when_used="json")
+    def serialize_{{name}}(self, value: Optional[Decimal]) -> Optional[float]:
+        return float(value) if value is not None else None
+{{/isNumber}}
+{{#vendorExtensions.x-regex}}
+
+    @field_validator("{{name}}")
+    @classmethod
+    def validate_{{name}}_pattern(cls, value: Any) -> Any:
+        if value is not None and not re.match(r"{{{.}}}", value{{#vendorExtensions.x-modifiers}}, re.{{{.}}}{{/vendorExtensions.x-modifiers}}):
+            raise ValueError("must match the required pattern")
+        return value
+{{/vendorExtensions.x-regex}}
+{{#isEnum}}
+
+    @field_validator("{{name}}")
+    @classmethod
+    def validate_{{name}}_enum(cls, value: Any) -> Any:
+        if value is not None:
+            for item in {{#isArray}}value{{/isArray}}{{^isArray}}(value,){{/isArray}}:
+                if item not in ({{#allowableValues}}{{#enumVars}}{{{value}}}, {{/enumVars}}{{/allowableValues}}):
+                    raise ValueError("must be an allowed enum value")
+        return value
+{{/isEnum}}
+{{#isDateTime}}
+
+    @field_validator("{{name}}", mode="before")
+    @classmethod
+    def validate_{{name}}_datetime_input(cls, value: Any) -> Any:
+        if value is not None and not isinstance(value, (str, datetime)):
+            raise ValueError("must be an ISO 8601 date-time string")
+        if isinstance(value, str) and not re.fullmatch(r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})", value):
+            raise ValueError("must be an RFC 3339 date-time string")
+        return value
+
+    @field_validator("{{name}}")
+    @classmethod
+    def validate_{{name}}_timezone(cls, value: Any) -> Any:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("must include a timezone")
+        return value
+{{/isDateTime}}
+{{#vendorExtensions.x-unique-by}}
+
+    @field_validator("{{name}}")
+    @classmethod
+    def validate_{{name}}_unique(cls, value: Any) -> Any:
+        if value is not None:
+            keys = [getattr(item, "{{{.}}}") for item in value]
+            if len(keys) != len(set(keys)):
+                raise ValueError("{{{.}}} must be unique")
+        return value
+{{/vendorExtensions.x-unique-by}}
+{{/vars}}
+{{#vendorExtensions.x-py-postponed-model-imports.size}}
+{{#vendorExtensions.x-py-postponed-model-imports}}
+{{{.}}}
+{{/vendorExtensions.x-py-postponed-model-imports}}
+{{classname}}.model_rebuild(raise_errors=False)
+{{/vendorExtensions.x-py-postponed-model-imports.size}}

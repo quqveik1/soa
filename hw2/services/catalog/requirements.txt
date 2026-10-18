@@ -1,0 +1,5 @@
+fastapi==0.141.1
+uvicorn==0.54.0
+psycopg[binary]==3.3.6
+PyJWT==2.15.1
+PyYAML==6.0.3
