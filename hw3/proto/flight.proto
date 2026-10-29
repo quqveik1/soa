@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package flight.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Every RPC requires x-api-key metadata; otherwise UNAUTHENTICATED.
+service FlightService {
+  // INVALID_ARGUMENT: invalid route/date. Only SCHEDULED flights are returned.
+  rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
+  // NOT_FOUND: unknown flight. INVALID_ARGUMENT: malformed UUID.
+  rpc GetFlight(GetFlightRequest) returns (Flight);
+  // RESOURCE_EXHAUSTED: not enough seats. NOT_FOUND: unknown flight.
+  // ALREADY_EXISTS: booking_id reused with a different flight or seat_count.
+  // FAILED_PRECONDITION: flight unavailable or reservation already released.
+  // Repeating the same active reservation returns it without reserving again.
+  rpc ReserveSeats(ReserveSeatsRequest) returns (SeatReservation);
+  // Idempotent, including unknown booking_id; fences a delayed ReserveSeats.
+  rpc ReleaseReservation(ReleaseReservationRequest) returns (google.protobuf.Empty);
+  // INVALID_ARGUMENT: invalid price/status/capacity; NOT_FOUND: unknown flight.
+  // FAILED_PRECONDITION: capacity smaller than the number of reserved seats.
+  rpc UpdateFlight(UpdateFlightRequest) returns (Flight);
+}
+
+enum FlightStatus {
+  FLIGHT_STATUS_UNSPECIFIED = 0;
+  SCHEDULED = 1;
+  DEPARTED = 2;
+  CANCELLED = 3;
+  COMPLETED = 4;
+}
+
+enum ReservationStatus {
+  RESERVATION_STATUS_UNSPECIFIED = 0;
+  ACTIVE = 1;
+  RELEASED = 2;
+  EXPIRED = 3;
+}
+
+message Flight {
+  string id = 1;
+  string airline_code = 2;
+  string airline_name = 3;
+  string flight_number = 4;
+  string origin = 5;
+  string destination = 6;
+  google.protobuf.Timestamp departure_at = 7;
+  google.protobuf.Timestamp arrival_at = 8;
+  int32 total_seats = 9;
+  int32 available_seats = 10;
+  // Decimal string in RUB, e.g. "7500.00"; no floating-point rounding.
+  string price = 11;
+  FlightStatus status = 12;
+}
+
+message SearchFlightsRequest {
+  string origin = 1;
+  string destination = 2;
+  // Optional UTC calendar date in YYYY-MM-DD format; empty means any date.
+  string date = 3;
+}
+
+message SearchFlightsResponse { repeated Flight flights = 1; }
+message GetFlightRequest { string flight_id = 1; }
+
+message ReserveSeatsRequest {
+  string flight_id = 1;
+  int32 seat_count = 2;
+  string booking_id = 3;
+}
+
+message SeatReservation {
+  string booking_id = 1;
+  string flight_id = 2;
+  int32 seat_count = 3;
+  ReservationStatus status = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ReleaseReservationRequest { string booking_id = 1; }
+
+message UpdateFlightRequest {
+  string flight_id = 1;
+  optional string price = 2;
+  optional int32 total_seats = 3;
+  optional FlightStatus status = 4;
+}

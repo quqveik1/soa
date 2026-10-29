@@ -1,0 +1,166 @@
+name: soa-hw3
+
+x-sentinel: &sentinel
+  image: redis:7.4.2-alpine
+  command: [sh, -c, 'test -f /data/sentinel.conf || cp /etc/redis/sentinel.conf /data/sentinel.conf; exec redis-server /data/sentinel.conf --sentinel']
+  depends_on:
+    redis-primary:
+      condition: service_healthy
+    redis-replica:
+      condition: service_healthy
+  healthcheck:
+    test: [CMD, redis-cli, -p, '26379', ping]
+    interval: 2s
+    timeout: 2s
+    retries: 30
+
+services:
+  booking-db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: booking
+      POSTGRES_USER: booking
+      POSTGRES_PASSWORD: booking
+    volumes:
+      - booking_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U booking -d booking]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  flight-db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: flight
+      POSTGRES_USER: flight
+      POSTGRES_PASSWORD: flight
+    volumes:
+      - flight_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U flight -d flight]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  booking-migrate:
+    image: redgate/flyway:11.20.0
+    platform: linux/amd64
+    command: migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://booking-db:5432/booking
+      FLYWAY_USER: booking
+      FLYWAY_PASSWORD: booking
+    volumes:
+      - ./db/booking:/flyway/sql:ro
+    depends_on:
+      booking-db:
+        condition: service_healthy
+
+  flight-migrate:
+    image: redgate/flyway:11.20.0
+    platform: linux/amd64
+    command: migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://flight-db:5432/flight
+      FLYWAY_USER: flight
+      FLYWAY_PASSWORD: flight
+    volumes:
+      - ./db/flight:/flyway/sql:ro
+    depends_on:
+      flight-db:
+        condition: service_healthy
+
+  redis-primary:
+    image: redis:7.4.2-alpine
+    command: [redis-server, --save, '', --appendonly, 'no']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redis-replica:
+    image: redis:7.4.2-alpine
+    command: [redis-server, --save, '', --appendonly, 'no', --replicaof, redis-primary, '6379']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  sentinel-1:
+    <<: *sentinel
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - sentinel_1:/data
+
+  sentinel-2:
+    <<: *sentinel
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - sentinel_2:/data
+
+  sentinel-3:
+    <<: *sentinel
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - sentinel_3:/data
+
+  flight:
+    build: .
+    command: [python, -m, flight.server]
+    ports:
+      - '127.0.0.1:${GRPC_PORT:-50051}:50051'
+    environment:
+      DATABASE_URL: postgresql://flight:flight@flight-db:5432/flight
+      FLIGHT_API_KEY: ${FLIGHT_API_KEY:-hw3-local-service-key}
+      REDIS_SENTINELS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+      REDIS_MASTER_NAME: flights-cache
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+    depends_on:
+      flight-migrate:
+        condition: service_completed_successfully
+      sentinel-1:
+        condition: service_healthy
+      sentinel-2:
+        condition: service_healthy
+      sentinel-3:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -m, flight.healthcheck]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  booking:
+    build: .
+    ports:
+      - '127.0.0.1:${PORT:-8003}:8000'
+    environment:
+      DATABASE_URL: postgresql://booking:booking@booking-db:5432/booking
+      FLIGHT_ADDRESS: flight:50051
+      FLIGHT_API_KEY: ${FLIGHT_API_KEY:-hw3-local-service-key}
+      GRPC_TIMEOUT_SECONDS: ${GRPC_TIMEOUT_SECONDS:-1}
+      GRPC_MAX_ATTEMPTS: ${GRPC_MAX_ATTEMPTS:-3}
+      GRPC_BACKOFF_SECONDS: ${GRPC_BACKOFF_SECONDS:-0.1}
+      CB_FAILURE_THRESHOLD: ${CB_FAILURE_THRESHOLD:-5}
+      CB_RECOVERY_SECONDS: ${CB_RECOVERY_SECONDS:-10}
+      CB_WINDOW_SECONDS: ${CB_WINDOW_SECONDS:-30}
+    depends_on:
+      booking-migrate:
+        condition: service_completed_successfully
+      flight:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health", timeout=2)']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  booking_data:
+  flight_data:
+  sentinel_1:
+  sentinel_2:
+  sentinel_3:
