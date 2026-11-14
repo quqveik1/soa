@@ -1,0 +1,43 @@
+@startuml
+title Temporal. Переход с push на SMS
+hide footbox
+participant "Приложение\nбанка" as App
+participant "Входной\nшлюз" as API
+database "PostgreSQL\nшлюза" as DB
+participant "Temporal" as Temporal
+participant "Обработчик" as Worker
+participant "Twilio" as SMS
+
+note over Temporal, Worker
+  Попытка push уже началась.
+  Workflow ждёт подтверждение 2 секунды.
+end note
+Temporal ->> Worker: Таймер истёк
+Worker -> Temporal: Запланировать SMS Activity, если сигнал ещё не получен
+Temporal ->> Worker: Задача отправки SMS с attempt_id
+Worker -> API: Запросить право на отправку
+API -> DB: Проверить сохранённые ACK и закрепить попытку
+alt ACK push уже записан
+    API --> Worker: Пропустить SMS
+    Worker -> Temporal: Завершить доставку через push
+else Подтверждения пока нет
+    API --> Worker: Можно отправить
+    Worker -> SMS: Отправить SMS с адресом для отчёта
+    SMS --> Worker: Принято
+    Worker -> Temporal: Провайдер принял запрос
+    SMS ->> API: Подтверждение доставки SMS от оператора
+    API -> DB: Сохранить отчёт и сигнал в outbox
+    API -->> SMS: 2xx после записи
+    API ->> Temporal: Передать сигнал с attempt_id
+    Temporal ->> Worker: Задача workflow с подтверждением
+    Worker -> Temporal: Зафиксировать доставку через SMS
+    Temporal ->> Worker: Activity записи статуса
+    Worker -> API: Обновить статус для поддержки
+    API -> DB: Сохранить статус
+    Worker -> Temporal: Завершить workflow после записи
+    opt Позднее подтверждение push
+        App -> API: Подтвердить получение push
+        API -> DB: Записать поздний ACK в историю
+    end
+end
+@enduml

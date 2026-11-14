@@ -1,0 +1,40 @@
+@startuml
+title Kafka и PostgreSQL. Переход с push на SMS
+hide footbox
+participant "Приложение\nбанка" as App
+participant "Шлюз\nподтверждений" as API
+participant "Координатор" as Coordinator
+database "PostgreSQL" as DB
+queue "Kafka\nотправки" as Jobs
+participant "Обработчик" as Worker
+participant "Twilio" as SMS
+
+note over Coordinator, DB
+  Попытка push уже началась.
+  Дедлайн ожидания ACK сохранён в базе.
+end note
+Coordinator -> DB: Найти попытку без ACK через 2 секунды
+Coordinator -> DB: Проверить статус под блокировкой,\nсохранить SMS-попытку и outbox
+Coordinator ->> Jobs: Опубликовать задачу из outbox
+Jobs ->> Worker: Задача с attempt_id для SMS
+Worker -> Coordinator: Запросить право на отправку
+Coordinator -> DB: Убедиться, что доставки ещё нет,\nи закрепить SMS-попытку
+alt До отправки пришёл ACK push
+    Coordinator --> Worker: Пропустить SMS
+else Подтверждения пока нет
+    Coordinator --> Worker: Можно отправить
+    Worker -> SMS: Отправить SMS с адресом для отчёта
+    SMS --> Worker: Принято
+    Worker -> Coordinator: Провайдер принял запрос
+    Coordinator -> DB: Записать принятие
+    SMS ->> API: Подтверждение доставки SMS от оператора
+    API -> Coordinator: Проверенный отчёт с attempt_id
+    Coordinator -> DB: Сохранить результат, закрыть доставку
+    API -->> SMS: 2xx после записи
+    opt Позднее подтверждение push
+        App -> API: Подтвердить получение push
+        API -> Coordinator: Проверенный ACK
+        Coordinator -> DB: Записать поздний ACK в историю
+    end
+end
+@enduml

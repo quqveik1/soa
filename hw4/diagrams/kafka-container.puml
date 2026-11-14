@@ -1,0 +1,43 @@
+@startuml
+!pragma layout smetana
+!include <C4/C4_Container>
+LAYOUT_TOP_DOWN()
+title C4 Container. Доставка через Kafka и PostgreSQL
+
+System_Ext(bank, "Сервис банковских операций", "Фиксирует операции и ведёт свой outbox")
+System_Ext(events, "Kafka банка", "События о проведённых операциях")
+System_Ext(profile, "Профиль клиента", "Проверенные контакты и настройки каналов")
+Person(support, "Поддержка", "Проверяет судьбу уведомления")
+System_Ext(app, "Приложение банка", "Показывает push и подтверждает получение")
+
+System_Boundary(delivery, "Notification Platform / транзакционная доставка") {
+    Container(api, "Шлюз подтверждений и статусов", "Kotlin / Spring Boot", "Принимает ответы каналов и отдаёт историю")
+    Container(coordinator, "Координатор доставки", "Kotlin / Spring Boot", "Читает события, ведёт попытки и сроки, публикует outbox")
+    ContainerDb(db, "Хранилище доставки", "PostgreSQL", "Уведомления, попытки, сроки и outbox")
+    ContainerQueue(jobs, "Топики отправки", "Apache Kafka", "Задачи по каналам, отдельно от кампаний")
+    Container(worker, "Обработчики отправки", "Kotlin / Spring Boot", "Запрашивают право на отправку и вызывают провайдеров")
+}
+
+System_Ext(push, "Push", "FCM / APNs")
+System_Ext(sms, "SMS", "Twilio")
+System_Ext(email, "Email", "Amazon SES / SNS")
+
+Rel(bank, events, "Публикует события из outbox", "Kafka")
+Rel_D(events, coordinator, "Передаёт события с notification_id", "Kafka")
+Rel(coordinator, profile, "Читает настройки и адреса", "HTTPS")
+Rel(support, api, "Смотрит статус", "HTTPS")
+Rel(app, api, "Подтверждает получение push", "HTTPS")
+Rel(api, coordinator, "Передаёт подтверждения, запрашивает историю", "HTTPS")
+Rel(coordinator, db, "Читает и сохраняет состояние", "SQL")
+Rel_D(coordinator, jobs, "Публикует задачи отправки", "Kafka")
+Rel_D(jobs, worker, "Передаёт задачи по каналам", "Kafka")
+Rel(worker, coordinator, "Запрашивает право на отправку, сообщает результат", "HTTPS")
+Rel(worker, push, "Отправляет push", "HTTPS")
+Rel(worker, sms, "Отправляет SMS", "HTTPS")
+Rel(worker, email, "Отправляет письмо", "HTTPS")
+Rel(push, app, "Передаёт push", "Push")
+Rel(sms, api, "Присылает отчёт о доставке", "HTTPS")
+Rel(email, api, "Присылает статус письма", "HTTPS")
+
+SHOW_LEGEND()
+@enduml

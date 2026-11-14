@@ -1,0 +1,35 @@
+@startuml
+title Kafka и PostgreSQL. Доставка через push
+hide footbox
+participant "Сервис\nопераций" as Bank
+queue "Kafka\nбанка" as Events
+participant "Координатор" as Coordinator
+database "PostgreSQL" as DB
+queue "Kafka\nотправки" as Jobs
+participant "Обработчик" as Worker
+participant "FCM" as Push
+participant "Приложение\nбанка" as App
+participant "Шлюз\nподтверждений" as API
+
+Bank -> Bank: Фиксирует операцию и запись outbox\nодной транзакцией
+Bank ->> Events: Событие с notification_id
+Events ->> Coordinator: Событие об операции
+Coordinator -> Coordinator: Выбирает push по настройкам
+Coordinator -> DB: Создать уведомление, попытку и outbox\nодной транзакцией
+DB --> Coordinator: Запись сохранена
+Coordinator -> Events: Подтвердить чтение события
+Coordinator ->> Jobs: Опубликовать задачу из outbox
+Jobs ->> Worker: Задача с attempt_id
+Worker -> Coordinator: Запросить право на отправку
+Coordinator -> DB: Закрепить попытку и записать срок ожидания
+Coordinator --> Worker: Можно отправить
+Worker -> Push: Отправить push с attempt_id
+Push --> Worker: Принято
+Worker -> Coordinator: Провайдер принял запрос
+Coordinator -> DB: Записать принятие
+Push ->> App: Push с attempt_id
+App -> API: Подтвердить получение
+API -> Coordinator: Проверенный ACK с attempt_id
+Coordinator -> DB: Сохранить ACK и закрыть доставку
+API --> App: 2xx после записи
+@enduml

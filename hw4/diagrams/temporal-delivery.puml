@@ -1,0 +1,41 @@
+@startuml
+title Temporal. Доставка через push
+hide footbox
+participant "Сервис\nопераций" as Bank
+queue "Kafka\nбанка" as Events
+participant "Входной\nшлюз" as API
+database "PostgreSQL\nшлюза" as DB
+participant "Temporal" as Temporal
+participant "Обработчик" as Worker
+participant "FCM" as Push
+participant "Приложение\nбанка" as App
+
+Bank -> Bank: Фиксирует операцию и запись outbox\nодной транзакцией
+Bank ->> Events: Событие с notification_id
+Events ->> API: Событие об операции
+API -> DB: Сохранить событие и запуск в outbox
+API -> Events: Подтвердить чтение после записи
+API -> Temporal: Запустить workflow из outbox\nс ID уведомления
+Temporal --> API: Запуск записан
+Temporal ->> Worker: Задача workflow
+Worker -> Worker: Выбирает push по настройкам
+Worker -> Temporal: Запланировать Activity и таймер
+Temporal ->> Worker: Activity с attempt_id
+Worker -> API: Запросить право на отправку
+API -> DB: Закрепить попытку после проверки ACK
+API --> Worker: Можно отправить
+Worker -> Push: Отправить push с attempt_id
+Push --> Worker: Принято
+Worker -> Temporal: Провайдер принял запрос
+Push ->> App: Push с attempt_id
+App -> API: Подтвердить получение
+API -> DB: Сохранить ACK и сигнал в outbox
+API --> App: 2xx после записи
+API ->> Temporal: Передать сигнал с attempt_id
+Temporal ->> Worker: Задача workflow с ACK
+Worker -> Temporal: Зафиксировать доставку и снять таймер
+Temporal ->> Worker: Activity записи статуса
+Worker -> API: Обновить статус для поддержки
+API -> DB: Сохранить статус
+Worker -> Temporal: Завершить workflow после записи
+@enduml

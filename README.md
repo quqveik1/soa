@@ -3,6 +3,7 @@
 - [ДЗ 1 — архитектура C4 и каркас сервиса](hw1/README.md)
 - [ДЗ 2 — OpenAPI, CRUD и заказы](hw2/README.md)
 - [ДЗ 3 — Flight Booking, gRPC и Redis](hw3/README.md)
+- [ДЗ 4 — требования и RFC платформы уведомлений](hw4/README.md)
 
 Запускай команды из каталога нужного задания: `cd hw1`, `cd hw2` или `cd hw3`.
 
