@@ -1,0 +1,102 @@
+{
+  "title": "Аналитика онлайн-кинотеатра",
+  "uid": "cinema-analytics",
+  "schemaVersion": 41,
+  "timezone": "utc",
+  "time": {"from": "now-14d/d", "to": "now"},
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Retention Cohort Heatmap",
+      "description": "Доля пользователей, активных через N дней после первого просмотра. Пустая ячейка означает, что день ещё не наступил.",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 11},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "cinema-clickhouse"},
+      "options": {"showHeader": true},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byRegexp", "options": "/^Day [0-7]$/"},
+            "properties": [
+              {"id": "unit", "value": "percentunit"},
+              {"id": "decimals", "value": 0},
+              {"id": "noValue", "value": "·"},
+              {"id": "color", "value": {"mode": "thresholds"}},
+              {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "transparent", "value": null},
+                    {"color": "semi-dark-blue", "value": 0},
+                    {"color": "blue", "value": 0.2},
+                    {"color": "super-light-blue", "value": 0.5}
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT toString(metric_date) AS `Когорта`, maxOrNullIf(value, dimension = '0') AS `Day 0`, maxOrNullIf(value, dimension = '1') AS `Day 1`, maxOrNullIf(value, dimension = '2') AS `Day 2`, maxOrNullIf(value, dimension = '3') AS `Day 3`, maxOrNullIf(value, dimension = '4') AS `Day 4`, maxOrNullIf(value, dimension = '5') AS `Day 5`, maxOrNullIf(value, dimension = '6') AS `Day 6`, maxOrNullIf(value, dimension = '7') AS `Day 7` FROM cinema.daily_metrics WHERE metric = 'retention' AND $__dateFilter(metric_date) GROUP BY metric_date HAVING isNotNull(`Day 0`) ORDER BY metric_date DESC"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Активные пользователи (DAU)",
+      "gridPos": {"x": 0, "y": 11, "w": 12, "h": 8},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "cinema-clickhouse"},
+      "fieldConfig": {"defaults": {"min": 0, "decimals": 0}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "editorType": "sql",
+          "format": 0,
+          "rawSql": "SELECT toDateTime(metric_date, 'UTC') AS time, value AS DAU FROM cinema.daily_metrics WHERE metric = 'dau' AND $__dateFilter(metric_date) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Конверсия просмотра",
+      "gridPos": {"x": 12, "y": 11, "w": 12, "h": 8},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "cinema-clickhouse"},
+      "fieldConfig": {"defaults": {"min": 0, "unit": "percentunit", "decimals": 1}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "editorType": "sql",
+          "format": 0,
+          "rawSql": "SELECT toDateTime(metric_date, 'UTC') AS time, value AS `Доля завершённых` FROM cinema.daily_metrics WHERE metric = 'conversion' AND $__dateFilter(metric_date) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Топ фильмов по начатым просмотрам",
+      "gridPos": {"x": 0, "y": 19, "w": 24, "h": 7},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "cinema-clickhouse"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT dimension AS `Фильм`, sum(value) AS `Просмотры` FROM cinema.daily_metrics WHERE metric = 'movie_views' AND $__dateFilter(metric_date) GROUP BY dimension ORDER BY `Просмотры` DESC, `Фильм` LIMIT 10"
+        }
+      ]
+    }
+  ]
+}
